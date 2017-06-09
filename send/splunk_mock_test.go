@@ -10,7 +10,8 @@ type splunkClientMock struct {
 	failCreate bool
 	failSend   bool
 
-	numSent int
+	numSent  int
+	httpSent int
 }
 
 func (c *splunkClientMock) Create(string, string) error {
@@ -27,6 +28,7 @@ func (c *splunkClientMock) WriteEvent(*hec.Event) error {
 	}
 
 	c.numSent++
+	c.httpSent++
 
 	return nil
 }
@@ -37,6 +39,7 @@ func (c *splunkClientMock) WriteBatch(b []*hec.Event) error {
 	}
 
 	c.numSent += len(b)
+	c.httpSent++
 
 	return nil
 }

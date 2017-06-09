@@ -12,6 +12,7 @@ import (
 type SplunkSuite struct {
 	info   SplunkConnectionInfo
 	client splunkClient
+	sender splunkLogger
 	suite.Suite
 }
 
@@ -19,11 +20,15 @@ func TestSplunkSuite(t *testing.T) {
 	suite.Run(t, new(SplunkSuite))
 }
 
-func (s *SplunkSuite) SetupSuite() {}
-
 func (s *SplunkSuite) SetupTest() {
-	s.info = SplunkConnectionInfo{}
-	s.client = &splunkClientMock{}
+	s.sender = splunkLogger{
+		info:   SplunkConnectionInfo{},
+		client: &splunkClientMock{},
+		Base:   NewBase("name"),
+	}
+
+	s.NoError(s.sender.client.Create(s.info.ServerURL, s.info.Token))
+	s.NoError(s.sender.SetLevel(LevelInfo{level.Debug, level.Info}))
 }
 
 func (s *SplunkSuite) TestEnvironmentVariableReader() {
@@ -46,16 +51,6 @@ func (s *SplunkSuite) TestNewConstructor() {
 	sender, err := NewSplunkLogger("name", s.info, LevelInfo{level.Debug, level.Info})
 	s.NoError(err)
 	s.NotNil(sender)
-}
-
-func (s *SplunkSuite) TestNewConstructorFailsWhenClientCreateFails() {
-	s.client = &splunkClientMock{failCreate: true}
-
-	sender, err := newSplunkLoggerNoClient("name", s.info, LevelInfo{level.Debug, level.Info}, s.client)
-	s.Error(err)
-	s.Nil(sender)
-
-	s.client = &splunkClientMock{}
 }
 
 func (s *SplunkSuite) TestAutoConstructor() {
@@ -96,54 +91,50 @@ func (s *SplunkSuite) TestAutoConstructorFailsWhenEnvVarFails() {
 }
 
 func (s *SplunkSuite) TestSendMethod() {
-	sender, err := newSplunkLoggerNoClient("name", s.info, LevelInfo{level.Debug, level.Info}, s.client)
-	s.NoError(err)
-	s.NotNil(sender)
-
-	mock, ok := s.client.(*splunkClientMock)
+	mock, ok := s.sender.client.(*splunkClientMock)
 	s.True(ok)
 	s.Equal(mock.numSent, 0)
+	s.Equal(mock.httpSent, 0)
 
 	m := message.NewDefaultMessage(level.Debug, "hello")
-	sender.Send(m)
+	s.sender.Send(m)
 	s.Equal(mock.numSent, 0)
+	s.Equal(mock.httpSent, 0)
 
 	m = message.NewDefaultMessage(level.Alert, "")
-	sender.Send(m)
+	s.sender.Send(m)
 	s.Equal(mock.numSent, 0)
+	s.Equal(mock.httpSent, 0)
 
 	m = message.NewDefaultMessage(level.Alert, "world")
-	sender.Send(m)
+	s.sender.Send(m)
 	s.Equal(mock.numSent, 1)
+	s.Equal(mock.httpSent, 1)
 }
 
 func (s *SplunkSuite) TestSendMethodWithError() {
-	sender, err := newSplunkLoggerNoClient("name", s.info, LevelInfo{level.Debug, level.Info}, s.client)
-	s.NoError(err)
-	s.NotNil(sender)
-
-	mock, ok := s.client.(*splunkClientMock)
+	mock, ok := s.sender.client.(*splunkClientMock)
 	s.True(ok)
 	s.Equal(mock.numSent, 0)
+	s.Equal(mock.httpSent, 0)
 	s.False(mock.failSend)
 
 	m := message.NewDefaultMessage(level.Alert, "world")
-	sender.Send(m)
+	s.sender.Send(m)
 	s.Equal(mock.numSent, 1)
+	s.Equal(mock.httpSent, 1)
 
 	mock.failSend = true
-	sender.Send(m)
+	s.sender.Send(m)
 	s.Equal(mock.numSent, 1)
+	s.Equal(mock.httpSent, 1)
 }
 
 func (s *SplunkSuite) TestBatchSendMethod() {
-	sender, err := newSplunkLoggerNoClient("namne", s.info, LevelInfo{level.Debug, level.Info}, s.client)
-	s.NoError(err)
-	s.NotNil(sender)
-
-	mock, ok := s.client.(*splunkClientMock)
+	mock, ok := s.sender.client.(*splunkClientMock)
 	s.True(ok)
 	s.Equal(mock.numSent, 0)
+	s.Equal(mock.httpSent, 0)
 
 	m1 := message.NewDefaultMessage(level.Alert, "hello")
 	m2 := message.NewDefaultMessage(level.Debug, "hello")
@@ -152,18 +143,16 @@ func (s *SplunkSuite) TestBatchSendMethod() {
 
 	g := message.MakeGroupComposer(m1, m2, m3, m4)
 
-	sender.Send(g)
+	s.sender.Send(g)
 	s.Equal(mock.numSent, 2)
+	s.Equal(mock.httpSent, 1)
 }
 
 func (s *SplunkSuite) TestBatchSendMethodWithEror() {
-	sender, err := newSplunkLoggerNoClient("name", s.info, LevelInfo{level.Debug, level.Info}, s.client)
-	s.NoError(err)
-	s.NotNil(sender)
-
-	mock, ok := s.client.(*splunkClientMock)
+	mock, ok := s.sender.client.(*splunkClientMock)
 	s.True(ok)
 	s.Equal(mock.numSent, 0)
+	s.Equal(mock.httpSent, 0)
 	s.False(mock.failSend)
 
 	m1 := message.NewDefaultMessage(level.Alert, "hello")
@@ -173,10 +162,12 @@ func (s *SplunkSuite) TestBatchSendMethodWithEror() {
 
 	g := message.MakeGroupComposer(m1, m2, m3, m4)
 
-	sender.Send(g)
+	s.sender.Send(g)
 	s.Equal(mock.numSent, 2)
+	s.Equal(mock.httpSent, 1)
 
 	mock.failSend = true
-	sender.Send(g)
+	s.sender.Send(g)
 	s.Equal(mock.numSent, 2)
+	s.Equal(mock.httpSent, 1)
 }

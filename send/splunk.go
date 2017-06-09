@@ -40,8 +40,8 @@ func GetSplunkConnectionInfo() SplunkConnectionInfo {
 }
 
 func (s *splunkLogger) Send(m message.Composer) {
-	g, isGroup := m.(*message.GroupComposer)
-	if isGroup {
+	g, ok := m.(*message.GroupComposer)
+	if ok {
 		batch := make([]*hec.Event, 0)
 		for _, c := range g.Messages() {
 			if s.level.ShouldLog(c) {
@@ -51,20 +51,23 @@ func (s *splunkLogger) Send(m message.Composer) {
 		if err := s.client.WriteBatch(batch); err != nil {
 			s.errHandler(err, m)
 		}
-	} else {
-		if s.level.ShouldLog(m) {
-			event := hec.NewEvent(m.Raw())
-			if err := s.client.WriteEvent(event); err != nil {
-				s.errHandler(err, m)
-			}
+		return
+	}
+	if s.level.ShouldLog(m) {
+		event := hec.NewEvent(m.Raw())
+		if err := s.client.WriteEvent(event); err != nil {
+			s.errHandler(err, m)
 		}
 	}
 }
 
-func newSplunkLoggerNoClient(name string, info SplunkConnectionInfo, l LevelInfo, client splunkClient) (Sender, error) {
+// NewSplunkLogger constructs a new Sender implementation that sends
+// messages to a Splunk event collector using the credentials specified
+// in the SplunkConnectionInfo struct.
+func NewSplunkLogger(name string, info SplunkConnectionInfo, l LevelInfo) (Sender, error) {
 	s := &splunkLogger{
 		info:   info,
-		client: client,
+		client: &splunkClientImpl{},
 		Base:   NewBase(name),
 	}
 
@@ -79,13 +82,6 @@ func newSplunkLoggerNoClient(name string, info SplunkConnectionInfo, l LevelInfo
 	return s, nil
 }
 
-// NewSplunkLogger constructs a new Sender implementation that sends
-// messages to a Splunk event collector using the credentials specified
-// in the SplunkConnectionInfo struct.
-func NewSplunkLogger(name string, info SplunkConnectionInfo, l LevelInfo) (Sender, error) {
-	return newSplunkLoggerNoClient(name, info, l, &splunkClientImpl{})
-}
-
 // MakeSplunkLogger constructs a new Sender implementation that reads
 // the hostname, username, and password from environment variables:
 //
@@ -95,11 +91,11 @@ func MakeSplunkLogger(name string) (Sender, error) {
 	info := GetSplunkConnectionInfo()
 	if info.ServerURL == "" {
 		return nil, fmt.Errorf("environment variable %s not defined, cannot create splunk client",
-			info.ServerURL)
+			splunkServerURL)
 	}
 	if info.Token == "" {
-		return nil, fmt.Errorf("environment variable %s not defined, cannot create slack client",
-			info.Token)
+		return nil, fmt.Errorf("environment variable %s not defined, cannot create splunk client",
+			splunkClientToken)
 	}
 	return NewSplunkLogger(name, info, LevelInfo{level.Trace, level.Trace})
 }
