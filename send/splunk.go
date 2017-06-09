@@ -1,7 +1,9 @@
 package send
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"os"
 
 	"github.com/fuyufjh/splunk-hec-go"
@@ -25,6 +27,7 @@ type splunkLogger struct {
 type SplunkConnectionInfo struct {
 	ServerURL string
 	Token     string
+	Channel   string
 }
 
 // GetSplunkConnectionInfo builds a SplunkConnectionInfo structure
@@ -40,22 +43,22 @@ func GetSplunkConnectionInfo() SplunkConnectionInfo {
 }
 
 func (s *splunkLogger) Send(m message.Composer) {
-	g, ok := m.(*message.GroupComposer)
-	if ok {
-		batch := make([]*hec.Event, 0)
-		for _, c := range g.Messages() {
-			if s.level.ShouldLog(c) {
-				batch = append(batch, hec.NewEvent(c.Raw()))
-			}
-		}
-		if err := s.client.WriteBatch(batch); err != nil {
-			s.errHandler(err, m)
-		}
-		return
-	}
 	if s.level.ShouldLog(m) {
-		event := hec.NewEvent(m.Raw())
-		if err := s.client.WriteEvent(event); err != nil {
+		g, ok := m.(*message.GroupComposer)
+		if ok {
+			batch := make([]*hec.Event, 0)
+			for _, c := range g.Messages() {
+				if s.level.ShouldLog(c) {
+					batch = append(batch, hec.NewEvent(c.Raw()))
+				}
+			}
+			if err := s.client.WriteBatch(batch); err != nil {
+				s.errHandler(err, m)
+			}
+			return
+		}
+
+		if err := s.client.WriteEvent(hec.NewEvent(m.Raw())); err != nil {
 			s.errHandler(err, m)
 		}
 	}
@@ -71,7 +74,7 @@ func NewSplunkLogger(name string, info SplunkConnectionInfo, l LevelInfo) (Sende
 		Base:   NewBase(name),
 	}
 
-	if err := s.client.Create(info.ServerURL, info.Token); err != nil {
+	if err := s.client.Create(info.ServerURL, info.Token, info.Channel); err != nil {
 		return nil, err
 	}
 
@@ -107,7 +110,7 @@ func MakeSplunkLogger(name string) (Sender, error) {
 ////////////////////////////////////////////////////////////////////////
 
 type splunkClient interface {
-	Create(string, string) error
+	Create(string, string, string) error
 	WriteEvent(*hec.Event) error
 	WriteBatch([]*hec.Event) error
 }
@@ -116,7 +119,13 @@ type splunkClientImpl struct {
 	hec.HEC
 }
 
-func (c *splunkClientImpl) Create(serverURL string, token string) error {
+func (c *splunkClientImpl) Create(serverURL string, token string, channel string) error {
 	c.HEC = hec.NewClient(serverURL, token)
+	c.HEC.SetHTTPClient(&http.Client{Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}})
+	if channel != "" {
+		c.HEC.SetChannel(channel)
+	}
 	return nil
 }

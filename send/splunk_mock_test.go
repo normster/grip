@@ -14,7 +14,7 @@ type splunkClientMock struct {
 	httpSent int
 }
 
-func (c *splunkClientMock) Create(string, string) error {
+func (c *splunkClientMock) Create(string, string, string) error {
 	if c.failCreate {
 		return errors.New("creation failed")
 	}

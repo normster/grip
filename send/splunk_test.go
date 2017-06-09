@@ -27,7 +27,7 @@ func (s *SplunkSuite) SetupTest() {
 		Base:   NewBase("name"),
 	}
 
-	s.NoError(s.sender.client.Create(s.info.ServerURL, s.info.Token))
+	s.NoError(s.sender.client.Create(s.sender.info.ServerURL, s.sender.info.Token, s.sender.info.Channel))
 	s.NoError(s.sender.SetLevel(LevelInfo{level.Debug, level.Info}))
 }
 
